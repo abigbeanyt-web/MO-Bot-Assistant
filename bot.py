@@ -1,15 +1,22 @@
 import asyncio
 import errno
 import logging
+import os
 from datetime import datetime, timezone
 from urllib.parse import quote
 
 import aiohttp
 import discord
 from discord.ext import commands
+from dotenv import load_dotenv
 
-from discord_bot.settings import load_settings
+load_dotenv()
 
+TOKEN = os.getenv("TOKEN")
+COMMAND_PREFIX = os.getenv("PREFIX", "!")
+SERVER_IP = os.getenv("SERVER_IP", "")
+SERVER_PORT = int(os.getenv("SERVER_PORT", 25565))
+SERVER_SEED = os.getenv("SERVER_SEED", "")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,19 +25,17 @@ logging.basicConfig(
 
 
 def create_bot() -> commands.Bot:
-    settings = load_settings()
-
     intents = discord.Intents.default()
     intents.message_content = True
     intents.members = True
 
     bot = commands.Bot(
-        command_prefix=settings.command_prefix,
+        command_prefix=COMMAND_PREFIX,
         intents=intents,
         help_command=None,
     )
 
-    def member_role() -> commands.has_role:
+    def member_role():
         return commands.has_role("member")
 
     def find_member_role(ctx: commands.Context) -> discord.Role | None:
@@ -83,34 +88,34 @@ def create_bot() -> commands.Bot:
     @bot.event
     async def on_ready() -> None:
         logging.info("Logged in as %s", bot.user)
-        activity = discord.Game(name=f"{settings.command_prefix}help")
+        activity = discord.Game(name=f"{COMMAND_PREFIX}help")
         await bot.change_presence(activity=activity)
 
     @bot.command(name="help")
     async def help_command(ctx: commands.Context) -> None:
-        prefix = settings.command_prefix
         embed = discord.Embed(
             title="Bot Commands",
             description="Here are the commands I can run right now.",
             color=discord.Color.blurple(),
         )
-        embed.add_field(name=f"{prefix}ip", value="Show the server IP address. Requires the member role.", inline=False)
-        embed.add_field(name=f"{prefix}seed", value="Show the server seed. Requires the member role.", inline=False)
-        embed.add_field(name=f"{prefix}status", value="Check whether the server is active. Requires the member role.", inline=False)
-        embed.add_field(name=f"{prefix}memberadd @user", value="Give someone the member role. Admins only.", inline=False)
-        embed.add_field(name=f"{prefix}memberremove @user", value="Remove someone's member role. Admins only.", inline=False)
-        embed.add_field(name=f"{prefix}announce message", value="Post a clean announcement embed. Admins only.", inline=False)
-        embed.add_field(name=f"{prefix}wiki term", value="Show the top result from the vanilla Minecraft Wiki.", inline=False)
-        embed.add_field(name=f"{prefix}coordinate", value="Sends coords to channel embed. Format as !coordiante x y location", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}ip", value="Show the server IP address. Requires the member role.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}seed", value="Show the server seed. Requires the member role.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}status", value="Check whether the server is active. Requires the member role.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}memberadd @user", value="Give someone the member role. Admins only.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}memberremove @user", value="Remove someone's member role. Admins only.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}announce message", value="Post a clean announcement embed. Admins only.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}wiki term", value="Show the top result from the vanilla Minecraft Wiki.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}coordinate x z location", value="Sends coords to pinned channel embed.", inline=False)
         await ctx.send(embed=embed)
 
     @bot.command(name="ip")
     @member_role()
     async def ip(ctx: commands.Context) -> None:
-        if not settings.server_ip:
-            await ctx.send("server ip is not configured yet.")
+        if not SERVER_IP:
+            await ctx.send("Server IP is not configured yet.")
             return
-        await ctx.send(f"server ip is {settings.server_ip}")
+        await ctx.send(f"Server IP is {SERVER_IP}")
+
     @bot.command(name="coordinate")
     @member_role()
     async def coordinate(ctx: commands.Context, x: int, z: int, *, location: str) -> None:
@@ -119,7 +124,6 @@ def create_bot() -> commands.Bot:
             await ctx.send("I could not find a channel named coordinates.")
             return
 
-        # Find existing pinned coordinate embed from the bot
         pins = await channel.pins()
         existing = next((m for m in pins if m.author == bot.user), None)
 
@@ -143,24 +147,23 @@ def create_bot() -> commands.Bot:
             await msg.pin()
 
         await ctx.message.add_reaction("✅")
-        
+
     @bot.command(name="seed")
     @member_role()
     async def seed(ctx: commands.Context) -> None:
-        if not settings.server_seed:
-            await ctx.send("the server seed is not configured yet.")
+        if not SERVER_SEED:
+            await ctx.send("The server seed is not configured yet.")
             return
-        await ctx.send(f"the server seed is: {settings.server_seed}")
+        await ctx.send(f"The server seed is: {SERVER_SEED}")
 
     @bot.command(name="status")
     @member_role()
     async def status(ctx: commands.Context) -> None:
-        if not settings.server_ip:
-            await ctx.send("server ip is not configured yet.")
+        if not SERVER_IP:
+            await ctx.send("Server IP is not configured yet.")
             return
-
         await ctx.typing()
-        result = await check_server(settings.server_ip, settings.server_port)
+        result = await check_server(SERVER_IP, SERVER_PORT)
         if result == "active":
             await ctx.send("🟢 server active")
         elif result == "starting":
@@ -211,7 +214,6 @@ def create_bot() -> commands.Bot:
         if channel is None:
             await ctx.send("I could not find a text channel named announcements.")
             return
-
         embed = discord.Embed(
             title="Announcement",
             description=message,
@@ -230,11 +232,9 @@ def create_bot() -> commands.Bot:
         except aiohttp.ClientError:
             await ctx.send("I could not reach the Minecraft Wiki right now.")
             return
-
         if result is None:
             await ctx.send(f"No vanilla Minecraft Wiki result found for `{term}`.")
             return
-
         title = result["title"]
         page_url = f"https://minecraft.wiki/w/{quote(title.replace(' ', '_'))}"
         embed = discord.Embed(
@@ -270,5 +270,9 @@ def create_bot() -> commands.Bot:
         logging.exception("Command failed", exc_info=error)
         await ctx.send("Something went wrong while running that command.")
 
-    bot._discord_token = settings.token
     return bot
+
+
+if __name__ == "__main__":
+    bot = create_bot()
+    bot.run(TOKEN)
