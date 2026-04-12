@@ -74,19 +74,20 @@ def create_bot() -> commands.Bot:
             return None
         return results[0]
 
-    def get_rcon_data() -> dict | None:
+    async def get_rcon_data() -> dict | None:
         """Connect via RCON and pull TPS, MSPT, player count, and mob count."""
         try:
-            with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
-                # Carpet mod TPS command
-                tps_raw = mcr.command("tps")
-                # Player list
-                list_raw = mcr.command("list")
-                # Entity count for mob switch detection
-                entity_raw = mcr.command("execute as @e run say x")
+            loop = asyncio.get_event_loop()
 
-            # Parse TPS and MSPT from Carpet output
-            # Carpet returns something like: "TPS: 20.0, MSPT: 3.5"
+            def rcon_call():
+                with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+                    tps_raw = mcr.command("tps")
+                    list_raw = mcr.command("list")
+                    entity_raw = mcr.command("execute as @e[type=!player] run say x")
+                return tps_raw, list_raw, entity_raw
+
+            tps_raw, list_raw, entity_raw = await loop.run_in_executor(None, rcon_call)
+
             tps = "?"
             mspt = "?"
             for part in tps_raw.split(","):
@@ -96,15 +97,12 @@ def create_bot() -> commands.Bot:
                 if "MSPT" in part.upper() or "ms" in part:
                     mspt = part.split(":")[-1].strip().split()[0]
 
-            # Parse player count from "There are X of a max of Y players online"
             player_count = 0
             for word in list_raw.split():
                 if word.isdigit():
                     player_count = int(word)
                     break
 
-            # Parse entity count - the "execute as @e" trick counts responses
-            # Each entity says "x" so count the lines
             mob_count = len([line for line in entity_raw.strip().split("\n") if line.strip()])
 
             return {
@@ -189,7 +187,7 @@ def create_bot() -> commands.Bot:
             return
 
         # Server is up, try RCON for stats
-        data = await asyncio.get_event_loop().run_in_executor(None, get_rcon_data)
+        data = await get_rcon_data()
 
         embed = discord.Embed(
             title="🟢 Server Online",
