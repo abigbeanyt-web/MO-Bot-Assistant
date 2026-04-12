@@ -9,7 +9,7 @@ import aiohttp
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-from mcrcon import MCRcon
+from rcon.source import Client as RconClient
 
 load_dotenv()
 
@@ -80,10 +80,10 @@ def create_bot() -> commands.Bot:
             loop = asyncio.get_event_loop()
 
             def rcon_call():
-                with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
-                    tps_raw = mcr.command("tps")
-                    list_raw = mcr.command("list")
-                    entity_raw = mcr.command("execute as @e[type=!player] run say x")
+                with RconClient(RCON_HOST, port=RCON_PORT, passwd=RCON_PASSWORD) as client:
+                    tps_raw = client.run("tps")
+                    list_raw = client.run("list")
+                    entity_raw = client.run("execute as @e[type=!player] run say x")
                 return tps_raw, list_raw, entity_raw
 
             tps_raw, list_raw, entity_raw = await loop.run_in_executor(None, rcon_call)
