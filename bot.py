@@ -21,7 +21,7 @@ SERVER_SEED = os.getenv("SERVER_SEED", "")
 RCON_HOST = os.getenv("RCON_HOST", "localhost")
 RCON_PORT = int(os.getenv("RCON_PORT", 27757))
 RCON_PASSWORD = os.getenv("RCON_PASSWORD", "")
-MAP_URL = "http://67.169.171.166:8100"
+MAP_URL = "http://67.169.166.171:8100"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -160,13 +160,26 @@ def create_bot() -> commands.Bot:
         embed.set_footer(text="Powered by BlueMap")
         await ctx.send(embed=embed)
 
+    async def check_server(ip_address: str, port: int) -> bool:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip_address, port),
+                timeout=3,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+
     @bot.command(name="status")
     @member_role()
     async def status(ctx: commands.Context) -> None:
         await ctx.typing()
-        data = await asyncio.get_event_loop().run_in_executor(None, get_rcon_data)
 
-        if data is None:
+        online = await check_server(SERVER_IP, SERVER_PORT)
+
+        if not online:
             embed = discord.Embed(
                 title="🔴 Server Offline",
                 description="The server is currently off.",
@@ -175,24 +188,26 @@ def create_bot() -> commands.Bot:
             await ctx.send(embed=embed)
             return
 
-        player_count = data["player_count"]
-        mob_count = data["mob_count"]
-
-        # Mob switch: on if >300 mobs and <5 players
-        if mob_count > 300 and player_count < 5:
-            mob_switch = "🟢 On"
-        else:
-            mob_switch = "🔴 Off"
+        # Server is up, try RCON for stats
+        data = await asyncio.get_event_loop().run_in_executor(None, get_rcon_data)
 
         embed = discord.Embed(
             title="🟢 Server Online",
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc),
         )
-        embed.add_field(name="TPS", value=data["tps"], inline=True)
-        embed.add_field(name="MSPT", value=data["mspt"], inline=True)
-        embed.add_field(name="Players", value=str(player_count), inline=True)
-        embed.add_field(name="Mob Switch", value=mob_switch, inline=True)
+
+        if data:
+            player_count = data["player_count"]
+            mob_count = data["mob_count"]
+            mob_switch = "🟢 On" if mob_count > 300 and player_count < 5 else "🔴 Off"
+            embed.add_field(name="TPS", value=data["tps"], inline=True)
+            embed.add_field(name="MSPT", value=data["mspt"], inline=True)
+            embed.add_field(name="Players", value=str(player_count), inline=True)
+            embed.add_field(name="Mob Switch", value=mob_switch, inline=True)
+        else:
+            embed.add_field(name="Stats", value="Could not retrieve stats via RCON.", inline=False)
+
         await ctx.send(embed=embed)
 
     @bot.command(name="coordinate")
