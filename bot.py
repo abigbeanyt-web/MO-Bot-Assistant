@@ -9,6 +9,7 @@ import aiohttp
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+from mcrcon import MCRcon
 
 load_dotenv()
 
@@ -17,6 +18,10 @@ COMMAND_PREFIX = os.getenv("PREFIX", "!")
 SERVER_IP = os.getenv("SERVER_IP", "")
 SERVER_PORT = int(os.getenv("SERVER_PORT", 25565))
 SERVER_SEED = os.getenv("SERVER_SEED", "")
+RCON_HOST = os.getenv("RCON_HOST", "localhost")
+RCON_PORT = int(os.getenv("RCON_PORT", 27757))
+RCON_PASSWORD = os.getenv("RCON_PASSWORD", "")
+MAP_URL = "http://67.169.171.166:8100"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,21 +74,48 @@ def create_bot() -> commands.Bot:
             return None
         return results[0]
 
-    async def check_server(ip_address: str, port: int) -> str:
+    def get_rcon_data() -> dict | None:
+        """Connect via RCON and pull TPS, MSPT, player count, and mob count."""
         try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(ip_address, port),
-                timeout=3,
-            )
-            writer.close()
-            await writer.wait_closed()
-            return "active"
-        except asyncio.TimeoutError:
-            return "off"
-        except OSError as error:
-            if error.errno in {errno.ECONNREFUSED, errno.EHOSTUNREACH, errno.ENETUNREACH}:
-                return "starting"
-            return "off"
+            with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+                # Carpet mod TPS command
+                tps_raw = mcr.command("tps")
+                # Player list
+                list_raw = mcr.command("list")
+                # Entity count for mob switch detection
+                entity_raw = mcr.command("execute as @e run say x")
+
+            # Parse TPS and MSPT from Carpet output
+            # Carpet returns something like: "TPS: 20.0, MSPT: 3.5"
+            tps = "?"
+            mspt = "?"
+            for part in tps_raw.split(","):
+                part = part.strip()
+                if "TPS" in part.upper():
+                    tps = part.split(":")[-1].strip().split()[0]
+                if "MSPT" in part.upper() or "ms" in part:
+                    mspt = part.split(":")[-1].strip().split()[0]
+
+            # Parse player count from "There are X of a max of Y players online"
+            player_count = 0
+            for word in list_raw.split():
+                if word.isdigit():
+                    player_count = int(word)
+                    break
+
+            # Parse entity count - the "execute as @e" trick counts responses
+            # Each entity says "x" so count the lines
+            mob_count = len([line for line in entity_raw.strip().split("\n") if line.strip()])
+
+            return {
+                "tps": tps,
+                "mspt": mspt,
+                "player_count": player_count,
+                "mob_count": mob_count,
+            }
+        except Exception as e:
+            logging.warning("RCON failed: %s", e)
+            return None
 
     @bot.event
     async def on_ready() -> None:
@@ -100,7 +132,8 @@ def create_bot() -> commands.Bot:
         )
         embed.add_field(name=f"{COMMAND_PREFIX}ip", value="Show the server IP address. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}seed", value="Show the server seed. Requires the member role.", inline=False)
-        embed.add_field(name=f"{COMMAND_PREFIX}status", value="Check whether the server is active. Requires the member role.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}status", value="Check server status, TPS, MSPT, and player count. Requires the member role.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}map", value="Get a link to the live BlueMap. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}memberadd @user", value="Give someone the member role. Admins only.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}memberremove @user", value="Remove someone's member role. Admins only.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}announce message", value="Post a clean announcement embed. Admins only.", inline=False)
@@ -115,6 +148,52 @@ def create_bot() -> commands.Bot:
             await ctx.send("Server IP is not configured yet.")
             return
         await ctx.send(f"Server IP is {SERVER_IP}")
+
+    @bot.command(name="map")
+    @member_role()
+    async def map_command(ctx: commands.Context) -> None:
+        embed = discord.Embed(
+            title="🗺️ Live Server Map",
+            description=f"[Click here to open the map]({MAP_URL})",
+            color=discord.Color.blue(),
+        )
+        embed.set_footer(text="Powered by BlueMap")
+        await ctx.send(embed=embed)
+
+    @bot.command(name="status")
+    @member_role()
+    async def status(ctx: commands.Context) -> None:
+        await ctx.typing()
+        data = await asyncio.get_event_loop().run_in_executor(None, get_rcon_data)
+
+        if data is None:
+            embed = discord.Embed(
+                title="🔴 Server Offline",
+                description="The server is currently off.",
+                color=discord.Color.red(),
+            )
+            await ctx.send(embed=embed)
+            return
+
+        player_count = data["player_count"]
+        mob_count = data["mob_count"]
+
+        # Mob switch: on if >300 mobs and <5 players
+        if mob_count > 300 and player_count < 5:
+            mob_switch = "🟢 On"
+        else:
+            mob_switch = "🔴 Off"
+
+        embed = discord.Embed(
+            title="🟢 Server Online",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="TPS", value=data["tps"], inline=True)
+        embed.add_field(name="MSPT", value=data["mspt"], inline=True)
+        embed.add_field(name="Players", value=str(player_count), inline=True)
+        embed.add_field(name="Mob Switch", value=mob_switch, inline=True)
+        await ctx.send(embed=embed)
 
     @bot.command(name="coordinate")
     @member_role()
@@ -155,21 +234,6 @@ def create_bot() -> commands.Bot:
             await ctx.send("The server seed is not configured yet.")
             return
         await ctx.send(f"The server seed is: {SERVER_SEED}")
-
-    @bot.command(name="status")
-    @member_role()
-    async def status(ctx: commands.Context) -> None:
-        if not SERVER_IP:
-            await ctx.send("Server IP is not configured yet.")
-            return
-        await ctx.typing()
-        result = await check_server(SERVER_IP, SERVER_PORT)
-        if result == "active":
-            await ctx.send("🟢 server active")
-        elif result == "starting":
-            await ctx.send("🟡 server starting")
-        else:
-            await ctx.send("🔴 server off")
 
     @bot.command(name="memberadd")
     @commands.has_permissions(administrator=True)
