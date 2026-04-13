@@ -136,6 +136,7 @@ def create_bot() -> commands.Bot:
         embed.add_field(name=f"{COMMAND_PREFIX}memberremove @user", value="Remove someone's member role. Admins only.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}announce message", value="Post a clean announcement embed. Admins only.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}wiki term", value="Show the top result from the vanilla Minecraft Wiki.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}rlwiki term", value="Show the top result from the RLCraft Wiki.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}coordinate x z location", value="Sends coords to pinned channel embed.", inline=False)
         await ctx.send(embed=embed)
 
@@ -319,6 +320,39 @@ def create_bot() -> commands.Bot:
             url=page_url,
             description="Top result from the vanilla Minecraft Wiki.",
             color=discord.Color.green(),
+        )
+        await ctx.send(embed=embed)
+
+    @bot.command(name="rlwiki")
+    async def rlwiki(ctx: commands.Context, *, term: str) -> None:
+        await ctx.typing()
+        try:
+            params = {
+                "action": "query",
+                "list": "search",
+                "srsearch": term,
+                "srlimit": "1",
+                "format": "json",
+            }
+            headers = {"User-Agent": "DiscordMinecraftServerBot/1.0"}
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.get("https://rlcraft.fandom.com/api.php", params=params, timeout=10) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+        except aiohttp.ClientError:
+            await ctx.send("I could not reach the RLCraft Wiki right now.")
+            return
+        results = data.get("query", {}).get("search", [])
+        if not results:
+            await ctx.send(f"No RLCraft Wiki result found for `{term}`.")
+            return
+        title = results[0]["title"]
+        page_url = f"https://rlcraft.fandom.com/wiki/{quote(title.replace(' ', '_'))}"
+        embed = discord.Embed(
+            title=title,
+            url=page_url,
+            description="Top result from the RLCraft Wiki.",
+            color=discord.Color.orange(),
         )
         await ctx.send(embed=embed)
 
