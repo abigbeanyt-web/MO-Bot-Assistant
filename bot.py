@@ -28,6 +28,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
+
 def create_bot() -> commands.Bot:
     intents = discord.Intents.default()
     intents.message_content = True
@@ -74,6 +75,7 @@ def create_bot() -> commands.Bot:
         return results[0]
 
     async def get_rcon_data() -> dict | None:
+        """Connect via RCON and pull TPS, MSPT, player count, and mob count."""
         try:
             loop = asyncio.get_event_loop()
 
@@ -126,17 +128,19 @@ def create_bot() -> commands.Bot:
             description="Here are the commands I can run right now.",
             color=discord.Color.blurple(),
         )
-        embed.add_field(name=f"{COMMAND_PREFIX}ip", value="Show the server IP address. Requires the member role.", inline=False)
+        # Member commands
+        embed.add_field(name=f"{COMMAND_PREFIX}ip", value="Show the vanilla server IP. Requires the member role.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}rlip", value="Show the RLCraft server IP. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}seed", value="Show the server seed. Requires the member role.", inline=False)
-        embed.add_field(name=f"{COMMAND_PREFIX}rlip", value="Show the rlcraft server IP. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}status", value="Check server status, TPS, MSPT, and player count. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}map", value="Get a link to the live BlueMap. Requires the member role.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}coordinate x z location", value="Sends coords to pinned channel embed. Requires the member role.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}wiki term", value="Show the top result from the vanilla Minecraft Wiki.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}rlwiki term", value="Show the top result from the RLCraft Wiki.", inline=False)
+        # Admin commands
         embed.add_field(name=f"{COMMAND_PREFIX}memberadd @user", value="Give someone the member role. Admins only.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}memberremove @user", value="Remove someone's member role. Admins only.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}announce message", value="Post a clean announcement embed. Admins only.", inline=False)
-        embed.add_field(name=f"{COMMAND_PREFIX}wiki term", value="Show the top result from the vanilla Minecraft Wiki.", inline=False)
-        embed.add_field(name=f"{COMMAND_PREFIX}rlwiki term", value="Show the top result from the RLCraft Wiki.", inline=False)
-        embed.add_field(name=f"{COMMAND_PREFIX}coordinate x z location", value="Sends coords to pinned channel embed.", inline=False)
         await ctx.send(embed=embed)
 
     @bot.command(name="ip")
@@ -150,7 +154,7 @@ def create_bot() -> commands.Bot:
     @bot.command(name="rlip")
     @member_role()
     async def rlip(ctx: commands.Context) -> None:
-        await ctx.send("Server IP is 67.169.166.171:25566")
+        await ctx.send("RLCraft server IP is 67.169.166.171:25566")
 
     @bot.command(name="map")
     @member_role()
@@ -179,7 +183,9 @@ def create_bot() -> commands.Bot:
     @member_role()
     async def status(ctx: commands.Context) -> None:
         await ctx.typing()
+
         online = await check_server(SERVER_IP, SERVER_PORT)
+
         if not online:
             embed = discord.Embed(
                 title="🔴 Server Offline",
@@ -190,18 +196,201 @@ def create_bot() -> commands.Bot:
             return
 
         data = await get_rcon_data()
+
         embed = discord.Embed(
             title="🟢 Server Online",
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc),
         )
+
         if data:
             player_count = data["player_count"]
             mob_count = data["mob_count"]
             mob_switch = "🟢 On" if mob_count > 300 and player_count < 5 else "🔴 Off"
             embed.add_field(name="TPS", value=data["tps"], inline=True)
             embed.add_field(name="MSPT", value=data["mspt"], inline=True)
-            embed.add_field(name="Players", value=str)
+            embed.add_field(name="Players", value=str(player_count), inline=True)
+            embed.add_field(name="Mob Switch", value=mob_switch, inline=True)
+        else:
+            embed.add_field(name="Stats", value="Could not retrieve stats via RCON.", inline=False)
+
+        await ctx.send(embed=embed)
+
+    @bot.command(name="coordinate")
+    @member_role()
+    async def coordinate(ctx: commands.Context, x: int, z: int, *, location: str) -> None:
+        channel = discord.utils.get(ctx.guild.text_channels, name="coordinates")
+        if channel is None:
+            await ctx.send("I could not find a channel named coordinates.")
+            return
+
+        pins = await channel.pins()
+        existing = next((m for m in pins if m.author == bot.user), None)
+
+        if existing is not None:
+            old_description = existing.embeds[0].description if existing.embeds else ""
+            new_line = f"\nX:{x} Z:{z} — {location}"
+            new_description = old_description + new_line
+            embed = discord.Embed(
+                title="Server Coordinates",
+                description=new_description,
+                color=discord.Color.gold(),
+            )
+            await existing.edit(embed=embed)
+        else:
+            embed = discord.Embed(
+                title="Server Coordinates",
+                description=f"X:{x} Z:{z} — {location}",
+                color=discord.Color.gold(),
+            )
+            msg = await channel.send(embed=embed)
+            await msg.pin()
+
+        await ctx.message.add_reaction("✅")
+
+    @bot.command(name="seed")
+    @member_role()
+    async def seed(ctx: commands.Context) -> None:
+        if not SERVER_SEED:
+            await ctx.send("The server seed is not configured yet.")
+            return
+        await ctx.send(f"The server seed is: {SERVER_SEED}")
+
+    @bot.command(name="memberadd")
+    @commands.has_permissions(administrator=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def memberadd(ctx: commands.Context, target: discord.Member) -> None:
+        role = find_member_role(ctx)
+        if role is None:
+            await ctx.send("I could not find a role named member.")
+            return
+        if role in target.roles:
+            await ctx.send(f"{target.mention} already has the member role.")
+            return
+        try:
+            await target.add_roles(role, reason=f"Added by {ctx.author}")
+        except discord.Forbidden:
+            await ctx.send("I do not have permission to give that role. Move my bot role above member in Server Settings.")
+            return
+        await ctx.send(f"Gave {target.mention} the member role.")
+
+    @bot.command(name="memberremove")
+    @commands.has_permissions(administrator=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def memberremove(ctx: commands.Context, target: discord.Member) -> None:
+        role = find_member_role(ctx)
+        if role is None:
+            await ctx.send("I could not find a role named member.")
+            return
+        if role not in target.roles:
+            await ctx.send(f"{target.mention} does not have the member role.")
+            return
+        try:
+            await target.remove_roles(role, reason=f"Removed by {ctx.author}")
+        except discord.Forbidden:
+            await ctx.send("I do not have permission to remove that role. Move my bot role above member in Server Settings.")
+            return
+        await ctx.send(f"Removed the member role from {target.mention}.")
+
+    @bot.command(name="announce")
+    @commands.has_permissions(administrator=True)
+    async def announce(ctx: commands.Context, *, message: str) -> None:
+        channel = find_announcements_channel(ctx)
+        if channel is None:
+            await ctx.send("I could not find a text channel named announcements.")
+            return
+        embed = discord.Embed(
+            title="Announcement",
+            description=message,
+            color=discord.Color.blurple(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_footer(text=f"Posted by {ctx.author.display_name}")
+        await channel.send(embed=embed)
+        await ctx.send(f"Announcement posted in {channel.mention}.")
+
+    @bot.command(name="wiki")
+    async def wiki(ctx: commands.Context, *, term: str) -> None:
+        await ctx.typing()
+        try:
+            result = await search_minecraft_wiki(term)
+        except aiohttp.ClientError:
+            await ctx.send("I could not reach the Minecraft Wiki right now.")
+            return
+        if result is None:
+            await ctx.send(f"No vanilla Minecraft Wiki result found for `{term}`.")
+            return
+        title = result["title"]
+        page_url = f"https://minecraft.wiki/w/{quote(title.replace(' ', '_'))}"
+        embed = discord.Embed(
+            title=title,
+            url=page_url,
+            description="Top result from the vanilla Minecraft Wiki.",
+            color=discord.Color.green(),
+        )
+        await ctx.send(embed=embed)
+
+    @bot.command(name="rlwiki")
+    async def rlwiki(ctx: commands.Context, *, term: str) -> None:
+        await ctx.typing()
+        try:
+            params = {
+                "action": "query",
+                "list": "search",
+                "srsearch": term,
+                "srlimit": "1",
+                "format": "json",
+            }
+            headers = {"User-Agent": "DiscordMinecraftServerBot/1.0"}
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.get("https://rlcraft.fandom.com/api.php", params=params, timeout=10) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+        except aiohttp.ClientError:
+            await ctx.send("I could not reach the RLCraft Wiki right now.")
+            return
+        results = data.get("query", {}).get("search", [])
+        if not results:
+            await ctx.send(f"No RLCraft Wiki result found for `{term}`.")
+            return
+        title = results[0]["title"]
+        page_url = f"https://rlcraft.fandom.com/wiki/{quote(title.replace(' ', '_'))}"
+        embed = discord.Embed(
+            title=title,
+            url=page_url,
+            description="Top result from the RLCraft Wiki.",
+            color=discord.Color.orange(),
+        )
+        await ctx.send(embed=embed)
+
+    @bot.event
+    async def on_command_error(ctx: commands.Context, error: commands.CommandError) -> None:
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("That command is missing something. Try `!help`.")
+            return
+        if isinstance(error, commands.MissingRole):
+            await ctx.send("You need the member role to use that command.")
+            return
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("Only admins can use that command.")
+            return
+        if isinstance(error, commands.BotMissingPermissions):
+            await ctx.send("I need the Manage Roles permission to do that.")
+            return
+        if isinstance(error, commands.MemberNotFound):
+            await ctx.send("I could not find that member. Try mentioning them, like `!memberadd @username`.")
+            return
+        if isinstance(error, commands.BadArgument):
+            await ctx.send("I could not understand that value. Try `!help`.")
+            return
+        if isinstance(error, commands.CommandNotFound):
+            return
+        logging.exception("Command failed", exc_info=error)
+        await ctx.send("Something went wrong while running that command.")
+
+    return bot
+
+
 if __name__ == "__main__":
     bot = create_bot()
     bot.run(TOKEN)
