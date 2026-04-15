@@ -74,7 +74,6 @@ def create_bot() -> commands.Bot:
         return results[0]
 
     async def get_rcon_data() -> dict | None:
-        """Connect via RCON and pull TPS, MSPT, player count, and mob count."""
         try:
             loop = asyncio.get_event_loop()
 
@@ -136,4 +135,70 @@ def create_bot() -> commands.Bot:
         embed.add_field(name=f"{COMMAND_PREFIX}memberremove @user", value="Remove someone's member role. Admins only.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}announce message", value="Post a clean announcement embed. Admins only.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}wiki term", value="Show the top result from the vanilla Minecraft Wiki.", inline=False)
-        embed.add_field(name=f"{COMMAND_PREFIX}rlwiki term", value="Show the top
+        embed.add_field(name=f"{COMMAND_PREFIX}rlwiki term", value="Show the top result from the RLCraft Wiki.", inline=False)
+        embed.add_field(name=f"{COMMAND_PREFIX}coordinate x z location", value="Sends coords to pinned channel embed.", inline=False)
+        await ctx.send(embed=embed)
+
+    @bot.command(name="ip")
+    @member_role()
+    async def ip(ctx: commands.Context) -> None:
+        if not SERVER_IP:
+            await ctx.send("Server IP is not configured yet.")
+            return
+        await ctx.send(f"Server IP is {SERVER_IP}")
+
+    @bot.command(name="rlip")
+    @member_role()
+    async def rlip(ctx: commands.Context) -> None:
+        await ctx.send("Server IP is 67.169.166.171:25566")
+
+    @bot.command(name="map")
+    @member_role()
+    async def map_command(ctx: commands.Context) -> None:
+        embed = discord.Embed(
+            title="🗺️ Live Server Map",
+            description=f"[Click here to open the map]({MAP_URL})",
+            color=discord.Color.blue(),
+        )
+        embed.set_footer(text="Powered by BlueMap")
+        await ctx.send(embed=embed)
+
+    async def check_server(ip_address: str, port: int) -> bool:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip_address, port),
+                timeout=3,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+
+    @bot.command(name="status")
+    @member_role()
+    async def status(ctx: commands.Context) -> None:
+        await ctx.typing()
+        online = await check_server(SERVER_IP, SERVER_PORT)
+        if not online:
+            embed = discord.Embed(
+                title="🔴 Server Offline",
+                description="The server is currently off.",
+                color=discord.Color.red(),
+            )
+            await ctx.send(embed=embed)
+            return
+
+        data = await get_rcon_data()
+        embed = discord.Embed(
+            title="🟢 Server Online",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        if data:
+            player_count = data["player_count"]
+            mob_count = data["mob_count"]
+            mob_switch = "🟢 On" if mob_count > 300 and player_count < 5 else "🔴 Off"
+            embed.add_field(name="TPS", value=data["tps"], inline=True)
+            embed.add_field(name="MSPT", value=data["mspt"], inline=True)
+            embed.add_field(name="Players", value=str
