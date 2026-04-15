@@ -202,3 +202,6 @@ def create_bot() -> commands.Bot:
             embed.add_field(name="TPS", value=data["tps"], inline=True)
             embed.add_field(name="MSPT", value=data["mspt"], inline=True)
             embed.add_field(name="Players", value=str)
+if __name__ == "__main__":
+    bot = create_bot()
+    bot.run(TOKEN)
