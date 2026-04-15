@@ -21,7 +21,7 @@ SERVER_SEED = os.getenv("SERVER_SEED", "")
 RCON_HOST = os.getenv("RCON_HOST", "localhost")
 RCON_PORT = int(os.getenv("RCON_PORT", 27757))
 RCON_PASSWORD = os.getenv("RCON_PASSWORD", "")
-MAP_URL = "http://67.169.166.171:8100"
+MAP_URL = "https://map.stoypass.xyz/"
 
 logging.basicConfig(
     level=logging.INFO,
