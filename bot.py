@@ -121,7 +121,7 @@ def create_bot() -> commands.Bot:
         activity = discord.Game(name=f"{COMMAND_PREFIX}help")
         await bot.change_presence(activity=activity)
 
-    @bot.command(name="help")
+@bot.command(name="help")
     async def help_command(ctx: commands.Context) -> None:
         embed = discord.Embed(
             title="Bot Commands",
@@ -140,8 +140,7 @@ def create_bot() -> commands.Bot:
         embed.add_field(name=f"{COMMAND_PREFIX}rlwiki term", value="Show the top result from the RLCraft Wiki.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}coordinate x z location", value="Sends coords to pinned channel embed.", inline=False)
         await ctx.send(embed=embed)
-
-    @bot.command(name="ip")
+       @bot.command(name="ip")
     @member_role()
     async def ip(ctx: commands.Context) -> None:
         if not SERVER_IP:
