@@ -201,4 +201,4 @@ def create_bot() -> commands.Bot:
             mob_switch = "🟢 On" if mob_count > 300 and player_count < 5 else "🔴 Off"
             embed.add_field(name="TPS", value=data["tps"], inline=True)
             embed.add_field(name="MSPT", value=data["mspt"], inline=True)
-            embed.add_field(name="Players", value=str
+            embed.add_field(name="Players", value=str)
