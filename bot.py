@@ -130,6 +130,7 @@ def create_bot() -> commands.Bot:
         )
         embed.add_field(name=f"{COMMAND_PREFIX}ip", value="Show the server IP address. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}seed", value="Show the server seed. Requires the member role.", inline=False)
+	embed.add_field(name=f"{COMMAND_PREFIX}rlip", value="Show the rlcraft server seed. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}status", value="Check server status, TPS, MSPT, and player count. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}map", value="Get a link to the live BlueMap. Requires the member role.", inline=False)
         embed.add_field(name=f"{COMMAND_PREFIX}memberadd @user", value="Give someone the member role. Admins only.", inline=False)
@@ -147,6 +148,10 @@ def create_bot() -> commands.Bot:
             await ctx.send("Server IP is not configured yet.")
             return
         await ctx.send(f"Server IP is {SERVER_IP}")
+
+    @bot.command(name="rlip")
+    @member_role()
+        await ctx.send(f"Server IP is {67.169.166.171:25566}")
 
     @bot.command(name="map")
     @member_role()
